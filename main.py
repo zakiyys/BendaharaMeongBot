@@ -115,18 +115,27 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = result_json.get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
     print("[OCR DEBUG] Lines:", lines)
-    items = []
+
+    produk = []
+    harga = []
     for line in lines:
-        match = re.search(r"(.+?)\s+(\d{3,6}|\d{1,3}[.,]\d{3})$", line.strip())
-        if match:
-            name = match.group(1).strip()
-            price_raw = match.group(2).replace(",", ".")
-            try:
-                price = int(float(price_raw))
-                if price >= 500:
-                    items.append((name, price))
-            except:
-                continue
+        line_clean = line.strip()
+        if re.fullmatch(r'[\d.,]{4,}', line_clean):
+            harga.append(line_clean)
+        elif line_clean and len(line_clean) > 3 and not any(keyword in line_clean.lower() for keyword in ["subtotal", "total", "payment", "debit", "thank", "check", "closed"]):
+            produk.append(line_clean)
+
+    paired = list(zip(produk, harga))
+    print("[OCR DEBUG] Paired:", paired)
+    items = []
+    for name, val in paired:
+        val_clean = val.replace(",", ".")
+        try:
+            int_val = int(float(val_clean))
+            if int_val >= 500:
+                items.append((name, int_val))
+        except:
+            continue
 
     if not items:
         await update.message.reply_text("❌ Gagal mengenali struk dengan benar. Silakan koreksi manual:\nKetik ulang item seperti:\nNasi Padang 15000\nTeh Botol 6000")
