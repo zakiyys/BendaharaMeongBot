@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 
+import openai
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 TOKEN = os.getenv("BOT_TOKEN")
 DB_FILE = "spending.db"
 
@@ -40,6 +43,44 @@ def get_total(user_id, days=0):
 def get_all_entries(user_id):
     c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     return c.fetchall()
+
+async def parse_items_with_ai(text):
+    prompt = f"""
+Berikut ini adalah hasil OCR dari struk belanja:
+{text}
+
+Tugasmu adalah mengidentifikasi semua nama item dan harganya. Abaikan bagian seperti subtotal, total, payment, atau teks lain yang bukan item belanja. Berikan hasilnya dalam format:
+Nama Item - Harga (angka saja, tanpa Rp)
+Contoh:
+Nasi Goreng - 15000
+Es Teh Manis - 6000
+"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Kamu adalah asisten yang pandai membaca struk dan mengekstrak item belanja."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2
+        )
+        reply = response['choices'][0]['message']['content']
+        items = []
+        for line in reply.strip().splitlines():
+            if '-' in line:
+                parts = line.split('-')
+                name = parts[0].strip()
+                try:
+                    price = int(parts[1].strip().replace('.', '').replace(',', ''))
+                    if price >= 500:
+                        items.append((name, price))
+                except:
+                    continue
+        return items
+    except Exception as e:
+        print("[AI PARSE ERROR]", str(e))
+        return []
 
 # Handlers
 
@@ -92,8 +133,6 @@ async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tidak ada data.")
 
 async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import re
-    print("[OCR DEBUG] Handler dipanggil.")
     user_id = update.effective_user.id
     photo = update.message.photo
     if not photo:
@@ -109,26 +148,10 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     result_json = res.json()
     lines = result_json.get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
+    full_text = "\n".join(lines)
     print("[OCR DEBUG] Lines:", lines)
 
-    # Smart grouping based on pattern: qty → name → price
-    items = []
-    buffer = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        buffer.append(line)
-        if len(buffer) >= 3:
-            try:
-                name = buffer[1].strip()
-                price_raw = buffer[2].strip().replace(",", ".")
-                price = int(float(price_raw))
-                if price >= 500 and not any(x in name.lower() for x in ["total", "payment", "debit"]):
-                    items.append((name, price))
-            except:
-                pass
-            buffer = []
+    items = await parse_items_with_ai(full_text)
 
     if not items:
         return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual:\nContoh: Nasi Goreng 15000")
@@ -136,7 +159,7 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ocr_cache[user_id] = items
     teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
     await update.message.reply_text(
-        f"🧾 Hasil OCR:\n<pre>{teks}</pre>", parse_mode="HTML",
+        f"🧾 Hasil OCR (AI):\n<pre>{teks}</pre>", parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✔️ Simpan", callback_data="save_ocr"),
             InlineKeyboardButton("✏️ Koreksi", callback_data="edit_ocr")
