@@ -1,22 +1,19 @@
 import os
-import json
 import sqlite3
 import requests
 from datetime import datetime, timedelta
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler, ConversationHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 
 TOKEN = os.getenv("BOT_TOKEN")
 DB_FILE = "spending.db"
 
-# --- INIT DB ---
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS spending (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
     amount INTEGER,
-    category TEXT,
     description TEXT,
     timestamp TEXT
 )''')
@@ -25,102 +22,147 @@ conn.commit()
 ocr_cache = {}
 KOREKSI = range(1)
 
-# --- HELPERS ---
-def insert_spending(user_id, amount, description="", category="Umum"):
+# Utilities
+
+def insert_spending(user_id, amount, description):
     now = datetime.now().isoformat()
-    c.execute("INSERT INTO spending (user_id, amount, category, description, timestamp) VALUES (?, ?, ?, ?, ?)",
-              (user_id, amount, category, description, now))
+    c.execute("INSERT INTO spending (user_id, amount, description, timestamp) VALUES (?, ?, ?, ?)", (user_id, amount, description, now))
     conn.commit()
 
-def get_total_spending(user_id, days=0):
+def get_total(user_id, days=0):
     if days == 0:
-        date_limit = datetime.now().date().isoformat()
-        c.execute("SELECT SUM(amount) FROM spending WHERE user_id = ? AND date(timestamp) = ?", (user_id, date_limit))
+        c.execute("SELECT SUM(amount) FROM spending WHERE user_id = ? AND date(timestamp) = date('now')", (user_id,))
     else:
-        date_limit = (datetime.now() - timedelta(days=days)).isoformat()
-        c.execute("SELECT SUM(amount) FROM spending WHERE user_id = ? AND timestamp >= ?", (user_id, date_limit))
+        c.execute("SELECT SUM(amount) FROM spending WHERE user_id = ? AND timestamp >= ?", (user_id, (datetime.now() - timedelta(days=days)).isoformat()))
     total = c.fetchone()[0]
     return total if total else 0
 
 def get_all_entries(user_id):
-    c.execute("SELECT id, amount, category, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
+    c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     return c.fetchall()
 
-def delete_entry(entry_id):
-    c.execute("DELETE FROM spending WHERE id = ?", (entry_id,))
-    conn.commit()
+# Handlers
 
-# --- COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Halo! Kirim pengeluaranmu (contoh: Makan siang 25000 Makanan) atau foto struk nanti, aku bantu catat!")
+    await update.message.reply_text("Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.")
 
-async def log_spending(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def log_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text
-    words = text.split()
-    amount = next((int(word) for word in words if word.isdigit()), None)
-    category = words[-1] if not words[-1].isdigit() else "Umum"
-
-    if amount:
-        insert_spending(user_id, amount, text, category)
-        await update.message.reply_text(f"✅ Tercatat: {text} - Rp {amount:,}".replace(",", "."))
+    text = update.message.text.strip()
+    if not text:
+        return
+    if text.lower().startswith("hapus"):
+        return await delete_last(update, context)
+    parts = text.rsplit(" ", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        insert_spending(user_id, int(parts[1]), parts[0])
+        await update.message.reply_text(f"✅ {parts[0]} - Rp {int(parts[1]):,}".replace(",", "."))
     else:
-        await update.message.reply_text("Harap masukkan nominal pengeluaran yang jelas.")
+        await update.message.reply_text("Format salah. Contoh: Es Teh 5000")
 
-async def ocr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total = get_total(update.effective_user.id)
+    await update.message.reply_text(f"Hari ini: Rp {total:,}".replace(",", "."))
+
+async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total = get_total(update.effective_user.id, 7)
+    await update.message.reply_text(f"7 Hari terakhir: Rp {total:,}".replace(",", "."))
+
+async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    entries = get_all_entries(user_id)
+    if not entries:
+        await update.message.reply_text("Belum ada catatan.")
+        return
+    msg = "📋 Ringkasan:\n<pre>"
+    for e in entries[:10]:
+        msg += f"{e[2][:10]} | Rp {e[0]:,} | {e[1][:25]}\n".replace(",", ".")
+    msg += "</pre>"
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    c.execute("SELECT id FROM spending WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1", (user_id,))
+    row = c.fetchone()
+    if row:
+        c.execute("DELETE FROM spending WHERE id = ?", (row[0],))
+        conn.commit()
+        await update.message.reply_text("✅ Entri terakhir dihapus.")
+    else:
+        await update.message.reply_text("Tidak ada data.")
+
+async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import re
     user_id = update.effective_user.id
-    photo = await update.message.photo[-1].get_file()
+    file = await update.message.photo[-1].get_file()
     path = f"temp_{user_id}.jpg"
-    await photo.download_to_drive(path)
+    await file.download_to_drive(path)
 
-    api_key = os.getenv("OCR_API_KEY", "helloworld")
     with open(path, 'rb') as f:
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            files={'filename': f},
-            data={'apikey': api_key, 'language': 'eng'}
-        )
-
+        res = requests.post("https://api.ocr.space/parse/image", files={"filename": f}, data={"apikey": os.getenv("OCR_API_KEY", "helloworld")})
     os.remove(path)
-    result = response.json()
-    if result.get("IsErroredOnProcessing"):
-        await update.message.reply_text("❌ Gagal memproses gambar.")
-        return
 
-    parsed_text = result["ParsedResults"][0]["ParsedText"]
-    lines = [line.strip() for line in parsed_text.splitlines() if line.strip() != '']
-
-    combined = []
-    skip_next = False
-    for i, line in enumerate(lines):
-        if skip_next:
-            skip_next = False
-            continue
-        if i + 1 < len(lines) and re.match(r"^\d+[.,]?\d*$", lines[i+1].replace(",", "").replace(".", "")):
-            combined.append(f"{line} {lines[i+1]}")
-            skip_next = True
-        else:
-            combined.append(line)
-
-    extracted = []
-    for line in combined:
-        match = re.search(r"(.+?)\s+(\d{2,3}(?:[.,]\d{3})+)$", line)
+    lines = res.json().get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
+    items = []
+    for line in lines:
+        match = re.search(r"(.+?)\s+(\d{2,3}(?:[.,]\d{3})+)$", line.strip())
         if match:
-            item = match.group(1).strip()
-            price = match.group(2).replace(",", ".")
-            try:
-                price_int = int(float(price))
-                if price_int >= 500:  # Minimal harga masuk akal
-                    extracted.append((item, price_int))
-            except:
-                continue
+            name = match.group(1).strip()
+            amount = int(float(match.group(2).replace(",", ".")))
+            if amount >= 500:
+                items.append((name, amount))
 
-    if extracted:
-        ocr_cache[user_id] = extracted
-        rows = "\n".join([f"{desc[:25]:<25} Rp {val:,}".replace(",", ".") for desc, val in extracted])
-        keyboard = [[
-            InlineKeyboardButton("✔️ Simpan", callback_data="ocr_simpan"),
-            InlineKeyboardButton("✏️ Koreksi", callback_data="ocr_koreksi")
-        ]]
-        await update.message.reply_text(f"🧾 Tabel Pengeluaran:\n<pre>{rows}</pre>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    if not items:
+        return await update.message.reply_text("Gagal mengenali struk dengan benar.")
+
+    ocr_cache[user_id] = items
+    teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
+    await update.message.reply_text(
+        f"🧾 Hasil OCR:\n<pre>{teks}</pre>", parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✔️ Simpan", callback_data="save_ocr"),
+            InlineKeyboardButton("✏️ Koreksi", callback_data="edit_ocr")
+        ]])
+    )
+
+async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "save_ocr":
+        for item in ocr_cache.get(user_id, []):
+            insert_spending(user_id, item[1], item[0])
+        ocr_cache.pop(user_id, None)
+        await query.edit_message_text("✅ Data berhasil disimpan.")
+    elif query.data == "edit_ocr":
+        await query.edit_message_text("Kirim ulang daftar yang dikoreksi, format: NamaItem 15000\nNamaItem2 12000")
+        return KOREKSI
+
+async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lines = update.message.text.strip().splitlines()
+    for line in lines:
+        parts = line.rsplit(" ", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            insert_spending(user_id, int(parts[1]), parts[0])
+    await update.message.reply_text("✅ Koreksi disimpan.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# App setup
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("today", today))
+app.add_handler(CommandHandler("week", week))
+app.add_handler(CommandHandler("summary", summary))
+app.add_handler(MessageHandler(filters.PHOTO, ocr_photo))
+app.add_handler(CallbackQueryHandler(ocr_decision))
+app.add_handler(ConversationHandler(
+    entry_points=[CallbackQueryHandler(ocr_decision, pattern="edit_ocr")],
+    states={KOREKSI: [MessageHandler(filters.TEXT & ~filters.COMMAND, ocr_edit_manual)]},
+    fallbacks=[]
+))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_text))
+
+app.run_polling()
