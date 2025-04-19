@@ -58,6 +58,9 @@ Contoh:
 Nasi Goreng (2X) - 24000
 Es Teh Manis (1X) - 6000
 
+Tambahkan satu baris paling bawah dengan:
+Total Belanja: Rp XXXX
+
 Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan harga, atau tulisan lain yang bukan item belanja.
 """
 
@@ -69,8 +72,7 @@ Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan har
                 {"role": "system", "content": "Kamu adalah asisten yang pandai membaca struk dan mengekstrak item belanja."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
-            logprobs=True
+            temperature=0.2
         )
         reply = response['choices'][0]['message']['content']
         usage = response.get("usage", {})
@@ -78,7 +80,12 @@ Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan har
         print(f"[AI TOKEN USAGE] prompt: {usage.get('prompt_tokens')}, completion: {usage.get('completion_tokens')}, total: {usage.get('total_tokens')}")
 
         items = []
-        for line in reply.strip().splitlines():
+        lines = reply.strip().splitlines()
+        total_line = ""
+        for line in lines:
+            if line.lower().startswith("total belanja"):
+                total_line = line
+                continue
             if '-' in line:
                 parts = line.split('-')
                 name_part = parts[0].strip()
@@ -99,10 +106,11 @@ Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan har
                         items.append((f"{name} ({qty}X)", price))
                 except:
                     continue
-        return items
+
+        return items, total_line
     except Exception as e:
         print("[AI PARSE ERROR]", str(e))
-        return []
+        return [], ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.")
@@ -171,13 +179,16 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_text = "\n".join(lines)
     print("[OCR DEBUG] Lines:", lines)
 
-    items = await parse_items_with_ai(full_text)
+    items, total_line = await parse_items_with_ai(full_text)
 
     if not items:
         return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual:\nContoh: Nasi Goreng 15000")
 
     ocr_cache[user_id] = items
     teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
+    if total_line:
+        teks += f"\n\n<b>{total_line}</b>"
+
     await update.message.reply_text(
         f"🧾 Hasil OCR (AI):\n<pre>{teks}</pre>", parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
@@ -210,7 +221,6 @@ async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Koreksi disimpan.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Setup bot
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
