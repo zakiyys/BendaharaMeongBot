@@ -93,16 +93,27 @@ async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import re
+    print("[OCR DEBUG] Handler dipanggil.")
     user_id = update.effective_user.id
-    file = await update.message.photo[-1].get_file()
+    photo = update.message.photo
+    if not photo:
+        print("[OCR DEBUG] Tidak ada foto dalam pesan.")
+        return await update.message.reply_text("❌ Tidak ada foto yang ditemukan.")
+
+    file = await photo[-1].get_file()
+    print("[OCR DEBUG] File berhasil diambil dari Telegram.")
     path = f"temp_{user_id}.jpg"
     await file.download_to_drive(path)
+    print("[OCR DEBUG] File berhasil diunduh ke:", path)
 
     with open(path, 'rb') as f:
         res = requests.post("https://api.ocr.space/parse/image", files={"filename": f}, data={"apikey": os.getenv("OCR_API_KEY", "helloworld")})
     os.remove(path)
 
-    lines = res.json().get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
+    result_json = res.json()
+    print("[OCR DEBUG] Full OCR response:", result_json)
+
+    lines = result_json.get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
     print("[OCR DEBUG] Lines:", lines)
     items = []
     for line in lines:
