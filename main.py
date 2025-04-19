@@ -1,9 +1,8 @@
 import os
 import json
-import pytesseract
 import sqlite3
+import requests
 from datetime import datetime, timedelta
-from PIL import Image
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 
@@ -101,9 +100,24 @@ async def ocr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = await update.message.photo[-1].get_file()
     path = f"temp_{user_id}.jpg"
     await photo.download_to_drive(path)
-    text = pytesseract.image_to_string(Image.open(path))
+
+    api_key = os.getenv("OCR_API_KEY", "helloworld")
+    with open(path, 'rb') as f:
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={'filename': f},
+            data={'apikey': api_key, 'language': 'eng'}
+        )
+
     os.remove(path)
-    await update.message.reply_text(f"📸 Teks dari struk:\n{text}")
+
+    result = response.json()
+    if result.get("IsErroredOnProcessing"):
+        await update.message.reply_text("❌ Gagal memproses gambar.")
+        return
+
+    parsed_text = result["ParsedResults"][0]["ParsedText"]
+    await update.message.reply_text(f"📸 Hasil OCR:\n{parsed_text}")
 
 async def delete_last_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
