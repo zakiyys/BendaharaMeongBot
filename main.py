@@ -232,7 +232,7 @@ app.add_handler(CallbackQueryHandler(ocr_action_handler))
 app.add_handler(ConversationHandler(
     entry_points=[CallbackQueryHandler(ocr_action_handler, pattern="ocr_koreksi")],
     states={KOREKSI: [MessageHandler(filters.TEXT & ~filters.COMMAND, koreksi_input)]},
-    fallbacks=[]
+    fallbacks=[],
     per_message=True
 ))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_spending))
