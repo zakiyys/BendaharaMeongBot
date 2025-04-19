@@ -46,22 +46,27 @@ async def parse_items_with_ai(text):
 Berikut ini adalah hasil OCR dari struk belanja:
 {text}
 
-Tugas kamu adalah mengekstrak semua item belanja dari struk di atas.
-Untuk setiap item, ambil:
-- Nama produk
-- Jumlah (quantity), jika tersedia
-- Total harga item (bukan satuan)
+Tugas kamu:
+1. Ekstrak semua item belanjaan dengan format:
+   Nama Item (Qty X) - TotalHarga
+2. Tambahkan bagian di bawahnya:
+   - Total Belanja
+   - PPN (jika ada)
+   - Diskon (jika ada)
+   - Anda Hemat (jika ada)
+   - Tunai dibayar
+   - Kembalian
 
-Tampilkan dalam format seperti ini:
-Nama Produk (Qty X) - TotalHarga
-Contoh:
-Nasi Goreng (2X) - 24000
-Es Teh Manis (1X) - 6000
+Format tampilan harus rapi dan semua harga diformat dengan titik ribuan. Contoh:
+Nasi Goreng (2X) - Rp 24.000
+Es Teh (1X) - Rp 6.000
+...
 
-Tambahkan satu baris paling bawah dengan:
-Total Belanja: Rp XXXX
-
-Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan harga, atau tulisan lain yang bukan item belanja.
+<b>Total Belanja:</b> Rp 75.400
+<b>Diskon:</b> Rp 2.000
+<b>PPN:</b> Rp 7.036
+<b>Tunai:</b> Rp 100.500
+<b>Kembali:</b> Rp 25.100
 """
 
     try:
@@ -72,45 +77,18 @@ Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan har
                 {"role": "system", "content": "Kamu adalah asisten yang pandai membaca struk dan mengekstrak item belanja."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.2,
+            user="bendahara_bot"
         )
         reply = response['choices'][0]['message']['content']
         usage = response.get("usage", {})
         print("[AI RESPONSE RAW]\n" + reply)
         print(f"[AI TOKEN USAGE] prompt: {usage.get('prompt_tokens')}, completion: {usage.get('completion_tokens')}, total: {usage.get('total_tokens')}")
 
-        items = []
-        lines = reply.strip().splitlines()
-        total_line = ""
-        for line in lines:
-            if line.lower().startswith("total belanja"):
-                total_line = line
-                continue
-            if '-' in line:
-                parts = line.split('-')
-                name_part = parts[0].strip()
-                qty = 1
-                if '(' in name_part and 'X' in name_part:
-                    try:
-                        qty_str = name_part.split('(')[-1].split('X')[0].strip()
-                        qty = int(qty_str)
-                        name = name_part.split('(')[0].strip()
-                    except:
-                        name = name_part.strip()
-                else:
-                    name = name_part.strip()
-
-                try:
-                    price = int(parts[1].strip().replace('.', '').replace(',', ''))
-                    if price >= 500:
-                        items.append((f"{name} ({qty}X)", price))
-                except:
-                    continue
-
-        return items, total_line
+        return reply
     except Exception as e:
         print("[AI PARSE ERROR]", str(e))
-        return [], ""
+        return ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.")
@@ -179,18 +157,12 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_text = "\n".join(lines)
     print("[OCR DEBUG] Lines:", lines)
 
-    items, total_line = await parse_items_with_ai(full_text)
-
-    if not items:
-        return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual:\nContoh: Nasi Goreng 15000")
-
-    ocr_cache[user_id] = items
-    teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
-    if total_line:
-        teks += f"\n\n<b>{total_line}</b>"
+    reply = await parse_items_with_ai(full_text)
+    if not reply:
+        return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual.")
 
     await update.message.reply_text(
-        f"🧾 Hasil OCR (AI):\n<pre>{teks}</pre>", parse_mode="HTML",
+        f"🧾 Hasil OCR (AI):\n<pre>{reply}</pre>", parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✔️ Simpan", callback_data="save_ocr"),
             InlineKeyboardButton("✏️ Koreksi", callback_data="edit_ocr")
@@ -201,15 +173,7 @@ async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-
-    if query.data == "save_ocr":
-        for item in ocr_cache.get(user_id, []):
-            insert_spending(user_id, item[1], item[0])
-        ocr_cache.pop(user_id, None)
-        await query.edit_message_text("✅ Data berhasil disimpan.")
-    elif query.data == "edit_ocr":
-        await query.edit_message_text("Kirim ulang daftar yang dikoreksi, format: NamaItem 15000\nNamaItem2 12000")
-        return KOREKSI
+    await query.edit_message_text("✅ Data disimpan sementara. Koreksi manual belum didukung penuh.")
 
 async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
