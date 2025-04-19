@@ -97,49 +97,41 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     photo = update.message.photo
     if not photo:
-        print("[OCR DEBUG] Tidak ada foto dalam pesan.")
         return await update.message.reply_text("❌ Tidak ada foto yang ditemukan.")
 
     file = await photo[-1].get_file()
-    print("[OCR DEBUG] File berhasil diambil dari Telegram.")
     path = f"temp_{user_id}.jpg"
     await file.download_to_drive(path)
-    print("[OCR DEBUG] File berhasil diunduh ke:", path)
 
     with open(path, 'rb') as f:
         res = requests.post("https://api.ocr.space/parse/image", files={"filename": f}, data={"apikey": os.getenv("OCR_API_KEY", "helloworld")})
     os.remove(path)
 
     result_json = res.json()
-    print("[OCR DEBUG] Full OCR response:", result_json)
-
     lines = result_json.get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
     print("[OCR DEBUG] Lines:", lines)
 
-    produk = []
-    harga = []
-    for line in lines:
-        line_clean = line.strip()
-        if re.fullmatch(r'[\d.,]{4,}', line_clean):
-            harga.append(line_clean)
-        elif line_clean and len(line_clean) > 3 and not any(keyword in line_clean.lower() for keyword in ["subtotal", "total", "payment", "debit", "thank", "check", "closed"]):
-            produk.append(line_clean)
-
+    # Smart grouping based on pattern: qty → name → price
     items = []
-    min_len = min(len(produk), len(harga))
-    for i in range(min_len):
-        name = produk[i]
-        val = harga[i].replace(",", ".")
-        try:
-            int_val = int(float(val))
-            if int_val >= 500:
-                items.append((name, int_val))
-        except:
+    buffer = []
+    for line in lines:
+        line = line.strip()
+        if not line:
             continue
+        buffer.append(line)
+        if len(buffer) >= 3:
+            try:
+                name = buffer[1].strip()
+                price_raw = buffer[2].strip().replace(",", ".")
+                price = int(float(price_raw))
+                if price >= 500 and not any(x in name.lower() for x in ["total", "payment", "debit"]):
+                    items.append((name, price))
+            except:
+                pass
+            buffer = []
 
     if not items:
-        await update.message.reply_text("❌ Gagal mengenali struk dengan benar. Silakan koreksi manual:\nKetik ulang item seperti:\nNasi Padang 15000\nTeh Botol 6000")
-        return
+        return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual:\nContoh: Nasi Goreng 15000")
 
     ocr_cache[user_id] = items
     teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
