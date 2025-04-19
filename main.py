@@ -233,7 +233,7 @@ app.add_handler(ConversationHandler(
     entry_points=[CallbackQueryHandler(ocr_action_handler, pattern="ocr_koreksi")],
     states={KOREKSI: [MessageHandler(filters.TEXT & ~filters.COMMAND, koreksi_input)]},
     fallbacks=[],
-    per_message=True
+    per_chat=True
 ))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_spending))
 app.add_handler(MessageHandler(filters.PHOTO, ocr_handler))
