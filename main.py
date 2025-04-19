@@ -2,7 +2,7 @@ import os
 import sqlite3
 import requests
 from datetime import datetime, timedelta
-from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -125,13 +125,13 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif line_clean and len(line_clean) > 3 and not any(keyword in line_clean.lower() for keyword in ["subtotal", "total", "payment", "debit", "thank", "check", "closed"]):
             produk.append(line_clean)
 
-    paired = list(zip(produk, harga))
-    print("[OCR DEBUG] Paired:", paired)
     items = []
-    for name, val in paired:
-        val_clean = val.replace(",", ".")
+    min_len = min(len(produk), len(harga))
+    for i in range(min_len):
+        name = produk[i]
+        val = harga[i].replace(",", ".")
         try:
-            int_val = int(float(val_clean))
+            int_val = int(float(val))
             if int_val >= 500:
                 items.append((name, int_val))
         except:
