@@ -4,13 +4,14 @@ import requests
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
-
 import openai
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# API key dari environment
+openai.api_key = os.getenv("OPENAI_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
 DB_FILE = "spending.db"
 
+# Inisialisasi DB
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS spending (
@@ -25,7 +26,7 @@ conn.commit()
 ocr_cache = {}
 KOREKSI = range(1)
 
-# Utilities
+# Utility DB
 
 def insert_spending(user_id, amount, description):
     now = datetime.now().isoformat()
@@ -44,6 +45,7 @@ def get_all_entries(user_id):
     c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     return c.fetchall()
 
+# AI Parsing
 async def parse_items_with_ai(text):
     prompt = f"""
 Berikut ini adalah hasil OCR dari struk belanja:
@@ -55,8 +57,8 @@ Contoh:
 Nasi Goreng - 15000
 Es Teh Manis - 6000
 """
-
     try:
+        print("[AI REQUEST PROMPT]\n" + prompt)
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -66,6 +68,10 @@ Es Teh Manis - 6000
             temperature=0.2
         )
         reply = response['choices'][0]['message']['content']
+        usage = response.get("usage", {})
+        print("[AI RESPONSE RAW]\n" + reply)
+        print(f"[AI TOKEN USAGE] prompt: {usage.get('prompt_tokens')}, completion: {usage.get('completion_tokens')}, total: {usage.get('total_tokens')}")
+
         items = []
         for line in reply.strip().splitlines():
             if '-' in line:
@@ -82,8 +88,7 @@ Es Teh Manis - 6000
         print("[AI PARSE ERROR]", str(e))
         return []
 
-# Handlers
-
+# Telegram Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.")
 
@@ -190,7 +195,7 @@ async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Koreksi disimpan.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# App setup
+# Setup bot
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
