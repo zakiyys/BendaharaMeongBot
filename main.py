@@ -63,40 +63,9 @@ async def log_spending(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if amount:
         insert_spending(user_id, amount, text, category)
-        await update.message.reply_text(f"✅ Tercatat: {text} - Rp {amount:,} ({category})")
+        await update.message.reply_text(f"✅ Tercatat: {text} - Rp {amount:,}".replace(",", "."))
     else:
         await update.message.reply_text("Harap masukkan nominal pengeluaran yang jelas.")
-
-async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    total = get_total_spending(user_id, days=0)
-    await update.message.reply_text(f"💸 Total pengeluaran hari ini: Rp {total:,}")
-
-async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    total = get_total_spending(user_id, days=7)
-    await update.message.reply_text(f"📅 Total pengeluaran 7 hari terakhir: Rp {total:,}")
-
-async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    entries = get_all_entries(user_id)
-    if not entries:
-        await update.message.reply_text("Belum ada catatan pengeluaran.")
-        return
-
-    header = "Tanggal     | Nominal   | Kategori  | Deskripsi\n" + "-"*50 + "\n"
-    rows = "\n".join([f"{e[4][:10]} | Rp {e[1]:,} | {e[2]} | {e[3][:20]}" for e in entries[:10]])
-    await update.message.reply_text(f"📋 Ringkasan terakhir:\n<pre>{header + rows}</pre>", parse_mode="HTML")
-
-async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    entries = get_all_entries(user_id)
-    filename = f"spending_{user_id}.txt"
-    with open(filename, "w") as f:
-        for e in entries:
-            f.write(f"{e[4]} - Rp {e[1]:,} - {e[2]} - {e[3]}\n")
-    await update.message.reply_document(InputFile(filename))
-    os.remove(filename)
 
 async def ocr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import re
@@ -136,106 +105,22 @@ async def ocr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     extracted = []
     for line in combined:
-        match = re.search(r"(.+?)\s+(\d+[.,]?\d*)$", line)
+        match = re.search(r"(.+?)\s+(\d{2,3}(?:[.,]\d{3})+)$", line)
         if match:
             item = match.group(1).strip()
             price = match.group(2).replace(",", ".")
             try:
                 price_int = int(float(price))
-                extracted.append((item, price_int))
+                if price_int >= 500:  # Minimal harga masuk akal
+                    extracted.append((item, price_int))
             except:
                 continue
 
     if extracted:
         ocr_cache[user_id] = extracted
-        rows = "\n".join([f"{desc[:25]:<25} Rp {val:,}" for desc, val in extracted])
+        rows = "\n".join([f"{desc[:25]:<25} Rp {val:,}".replace(",", ".") for desc, val in extracted])
         keyboard = [[
             InlineKeyboardButton("✔️ Simpan", callback_data="ocr_simpan"),
             InlineKeyboardButton("✏️ Koreksi", callback_data="ocr_koreksi")
         ]]
         await update.message.reply_text(f"🧾 Tabel Pengeluaran:\n<pre>{rows}</pre>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def ocr_action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-
-    if query.data == "ocr_simpan":
-        data = ocr_cache.get(user_id)
-        if not data:
-            await query.edit_message_text("❌ Tidak ada data untuk disimpan.")
-            return
-        for item, val in data:
-            insert_spending(user_id, val, item)
-        await query.edit_message_text("✅ Semua data berhasil disimpan!")
-        ocr_cache.pop(user_id, None)
-
-    elif query.data == "ocr_koreksi":
-        await query.edit_message_text("Silakan kirim ulang item-item yang sudah dikoreksi dalam format:\nItem A 15000\nItem B 20000")
-        return KOREKSI
-
-async def koreksi_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    new_data = []
-    for line in text.splitlines():
-        if line.strip():
-            parts = line.rsplit(" ", 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                new_data.append((parts[0], int(parts[1])))
-
-    if new_data:
-        for item, val in new_data:
-            insert_spending(user_id, val, item)
-        await update.message.reply_text("✅ Koreksi disimpan dan dicatat.", reply_markup=ReplyKeyboardRemove())
-    else:
-        await update.message.reply_text("Format tidak dikenali. Ulangi dengan format: NamaItem 15000", reply_markup=ReplyKeyboardRemove())
-    ocr_cache.pop(user_id, None)
-    return ConversationHandler.END
-
-async def delete_last_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    entries = get_all_entries(user_id)
-    if not entries:
-        await update.message.reply_text("Tidak ada catatan untuk dihapus.")
-        return
-
-    last = entries[0]
-    keyboard = [
-        [InlineKeyboardButton("Ya, hapus", callback_data=f"hapus:{last[0]}")],
-        [InlineKeyboardButton("Batal", callback_data="batal")]
-    ]
-    await update.message.reply_text(
-        f"Ingin menghapus pengeluaran berikut?\n\nRp {last[1]:,} - {last[3]} ({last[2]})",
-        reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data.startswith("hapus:"):
-        entry_id = int(query.data.split(":")[1])
-        delete_entry(entry_id)
-        await query.edit_message_text("✅ Catatan berhasil dihapus.")
-    elif query.data == "batal":
-        await query.edit_message_text("❎ Dibatalkan.")
-
-# --- BOT SETUP ---
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("today", today))
-app.add_handler(CommandHandler("week", week))
-app.add_handler(CommandHandler("summary", summary))
-app.add_handler(CommandHandler("export", export_data))
-app.add_handler(CommandHandler("hapus", delete_last_entry))
-app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(CallbackQueryHandler(ocr_action_handler))
-app.add_handler(ConversationHandler(
-    entry_points=[CallbackQueryHandler(ocr_action_handler, pattern="ocr_koreksi")],
-    states={KOREKSI: [MessageHandler(filters.TEXT & ~filters.COMMAND, koreksi_input)]},
-    fallbacks=[],
-    per_chat=True
-))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_spending))
-app.add_handler(MessageHandler(filters.PHOTO, ocr_handler))
-
-app.run_polling()
