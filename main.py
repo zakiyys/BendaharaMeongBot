@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import base64
 import requests
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -7,6 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
 DB_FILE = "spending.db"
 
@@ -40,6 +42,30 @@ def get_total(user_id, days=0):
 def get_all_entries(user_id):
     c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     return c.fetchall()
+
+async def google_vision_ocr(image_path):
+    with open(image_path, "rb") as image_file:
+        content = base64.b64encode(image_file.read()).decode("utf-8")
+
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    body = {
+        "requests": [
+            {
+                "image": {"content": content},
+                "features": [{"type": "TEXT_DETECTION"}]
+            }
+        ]
+    }
+
+    res = requests.post(url, json=body, headers=headers)
+    res_json = res.json()
+    try:
+        text = res_json['responses'][0]['fullTextAnnotation']['text']
+        return text
+    except:
+        print("[VISION ERROR]", res_json)
+        return ""
 
 async def parse_items_with_ai(text):
     prompt = f"""
@@ -84,7 +110,6 @@ Es Teh (1X) - Rp 6.000
         usage = response.get("usage", {})
         print("[AI RESPONSE RAW]\n" + reply)
         print(f"[AI TOKEN USAGE] prompt: {usage.get('prompt_tokens')}, completion: {usage.get('completion_tokens')}, total: {usage.get('total_tokens')}")
-
         return reply
     except Exception as e:
         print("[AI PARSE ERROR]", str(e))
@@ -148,21 +173,15 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     path = f"temp_{user_id}.jpg"
     await file.download_to_drive(path)
 
-    with open(path, 'rb') as f:
-        res = requests.post("https://api.ocr.space/parse/image", files={"filename": f}, data={"apikey": os.getenv("OCR_API_KEY", "helloworld")})
-    os.remove(path)
+    raw_text = await google_vision_ocr(path)
+    print("[OCR DEBUG TEXT]\n" + raw_text)
 
-    result_json = res.json()
-    lines = result_json.get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
-    full_text = "\n".join(lines)
-    print("[OCR DEBUG] Lines:", lines)
-
-    reply = await parse_items_with_ai(full_text)
+    reply = await parse_items_with_ai(raw_text)
     if not reply:
         return await update.message.reply_text("❌ Gagal mengenali struk. Kirim ulang atau koreksi manual.")
 
     await update.message.reply_text(
-        f"🧾 Hasil OCR (AI):\n<pre>{reply}</pre>", parse_mode="HTML",
+        f"🧾 Hasil OCR (Google + AI):\n<pre>{reply}</pre>", parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✔️ Simpan", callback_data="save_ocr"),
             InlineKeyboardButton("✏️ Koreksi", callback_data="edit_ocr")
