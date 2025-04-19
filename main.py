@@ -6,12 +6,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 import openai
 
-# API key dari environment
 openai.api_key = os.getenv("OPENAI_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
 DB_FILE = "spending.db"
 
-# Inisialisasi DB
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS spending (
@@ -25,8 +23,6 @@ conn.commit()
 
 ocr_cache = {}
 KOREKSI = range(1)
-
-# Utility DB
 
 def insert_spending(user_id, amount, description):
     now = datetime.now().isoformat()
@@ -45,18 +41,26 @@ def get_all_entries(user_id):
     c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     return c.fetchall()
 
-# AI Parsing
 async def parse_items_with_ai(text):
     prompt = f"""
 Berikut ini adalah hasil OCR dari struk belanja:
 {text}
 
-Tugasmu adalah mengidentifikasi semua nama item dan harganya. Abaikan bagian seperti subtotal, total, payment, atau teks lain yang bukan item belanja. Berikan hasilnya dalam format:
-Nama Item - Harga (angka saja, tanpa Rp)
+Tugas kamu adalah mengekstrak semua item belanja dari struk di atas.
+Untuk setiap item, ambil:
+- Nama produk
+- Jumlah (quantity), jika tersedia
+- Total harga item (bukan satuan)
+
+Tampilkan dalam format seperti ini:
+Nama Produk (Qty X) - TotalHarga
 Contoh:
-Nasi Goreng - 15000
-Es Teh Manis - 6000
+Nasi Goreng (2X) - 24000
+Es Teh Manis (1X) - 6000
+
+Abaikan baris yang mengandung subtotal, total, tunai, kembali, PPN, potongan harga, atau tulisan lain yang bukan item belanja.
 """
+
     try:
         print("[AI REQUEST PROMPT]\n" + prompt)
         response = openai.ChatCompletion.create(
@@ -65,7 +69,8 @@ Es Teh Manis - 6000
                 {"role": "system", "content": "Kamu adalah asisten yang pandai membaca struk dan mengekstrak item belanja."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.2,
+            logprobs=True
         )
         reply = response['choices'][0]['message']['content']
         usage = response.get("usage", {})
@@ -76,11 +81,22 @@ Es Teh Manis - 6000
         for line in reply.strip().splitlines():
             if '-' in line:
                 parts = line.split('-')
-                name = parts[0].strip()
+                name_part = parts[0].strip()
+                qty = 1
+                if '(' in name_part and 'X' in name_part:
+                    try:
+                        qty_str = name_part.split('(')[-1].split('X')[0].strip()
+                        qty = int(qty_str)
+                        name = name_part.split('(')[0].strip()
+                    except:
+                        name = name_part.strip()
+                else:
+                    name = name_part.strip()
+
                 try:
                     price = int(parts[1].strip().replace('.', '').replace(',', ''))
                     if price >= 500:
-                        items.append((name, price))
+                        items.append((f"{name} ({qty}X)", price))
                 except:
                     continue
         return items
@@ -88,7 +104,6 @@ Es Teh Manis - 6000
         print("[AI PARSE ERROR]", str(e))
         return []
 
-# Telegram Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.")
 
