@@ -103,17 +103,23 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(path)
 
     lines = res.json().get("ParsedResults", [{}])[0].get("ParsedText", "").splitlines()
+    print("[OCR DEBUG] Lines:", lines)
     items = []
     for line in lines:
-        match = re.search(r"(.+?)\s+(\d{2,3}(?:[.,]\d{3})+)$", line.strip())
+        match = re.search(r"(.+?)\s+(\d{3,6}|\d{1,3}[.,]\d{3})$", line.strip())
         if match:
             name = match.group(1).strip()
-            amount = int(float(match.group(2).replace(",", ".")))
-            if amount >= 500:
-                items.append((name, amount))
+            price_raw = match.group(2).replace(",", ".")
+            try:
+                price = int(float(price_raw))
+                if price >= 500:
+                    items.append((name, price))
+            except:
+                continue
 
     if not items:
-        return await update.message.reply_text("Gagal mengenali struk dengan benar.")
+        await update.message.reply_text("❌ Gagal mengenali struk dengan benar. Silakan koreksi manual:\nKetik ulang item seperti:\nNasi Padang 15000\nTeh Botol 6000")
+        return
 
     ocr_cache[user_id] = items
     teks = "\n".join(f"{name[:25]:<25} Rp {amount:,}".replace(",", ".") for name, amount in items)
