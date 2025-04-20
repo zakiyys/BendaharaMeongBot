@@ -9,7 +9,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 import openai
 
-from db_postgres import insert_spending, get_today, get_week, get_all_entries, save_user_timezone, get_user_timezone, delete_last_entry
+from db_postgres import (
+    insert_spending, get_today, get_week, get_all_entries,
+    save_user_timezone, get_user_timezone, delete_last_entry, setup_tables
+)
 
 # Locale
 with open("locale_texts.json", "r") as f:
@@ -19,6 +22,9 @@ with open("locale_texts.json", "r") as f:
 openai.api_key = os.getenv("OPENAI_API_KEY")
 VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
+
+# Jalankan setup table saat environment sudah siap
+setup_tables()
 
 KOREKSI = range(1)
 ocr_cache = {}

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import pytz
 
 # Deferred connection factory
-
 def get_conn():
     return pg8000.native.Connection(
         user=os.getenv("PGUSER", "postgres"),
@@ -14,7 +13,7 @@ def get_conn():
         database=os.getenv("PGDATABASE", "postgres")
     )
 
-# ========== SETUP TABLE (once) ==========
+# ========== SETUP TABLE (manual trigger) ==========
 def setup_tables():
     conn = get_conn()
     conn.run("""
@@ -33,8 +32,6 @@ def setup_tables():
     """)
     conn.close()
 
-setup_tables()
-
 # ========== DB FUNCTIONS ==========
 def insert_spending(user_id, amount, description, user_tz):
     conn = get_conn()
@@ -45,13 +42,11 @@ def insert_spending(user_id, amount, description, user_tz):
     """, user_id=user_id, amount=amount, description=description, timestamp=now)
     conn.close()
 
-
 def get_user_timezone(user_id):
     conn = get_conn()
     res = conn.run("SELECT timezone FROM user_settings WHERE user_id = :user_id", user_id=user_id)
     conn.close()
     return res[0]["timezone"] if res else "Asia/Jakarta"
-
 
 def save_user_timezone(user_id, zone):
     conn = get_conn()
@@ -62,7 +57,6 @@ def save_user_timezone(user_id, zone):
     """, user_id=user_id, zone=zone)
     conn.close()
 
-
 def get_today(user_id):
     conn = get_conn()
     result = conn.run("""
@@ -72,7 +66,6 @@ def get_today(user_id):
     """, user_id=user_id)
     conn.close()
     return result
-
 
 def get_week(user_id):
     conn = get_conn()
@@ -86,7 +79,6 @@ def get_week(user_id):
     conn.close()
     return result
 
-
 def get_all_entries(user_id):
     conn = get_conn()
     result = conn.run("""
@@ -95,7 +87,6 @@ def get_all_entries(user_id):
     """, user_id=user_id)
     conn.close()
     return result
-
 
 def delete_last_entry(user_id):
     conn = get_conn()
