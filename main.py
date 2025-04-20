@@ -31,6 +31,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS spending (
 conn.commit()
 
 KOREKSI = range(1)
+ocr_cache = {}
 
 # ============ UTILITY ============
 def insert_spending(user_id, amount, description):
@@ -157,6 +158,7 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return await update.message.reply_text(TXT["OCR_ERROR"])
     result = await parse_items_with_ai(text)
+    ocr_cache[user_id] = result
     await update.message.reply_text(
         f"\U0001F4BE Hasil OCR (Google + AI):\n<pre>{result}</pre>",
         parse_mode="HTML",
@@ -168,8 +170,28 @@ async def ocr_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
     await query.answer()
-    await query.edit_message_text(TXT["DISIMPAN_SEMENTARA"])
+
+    if query.data == "save_ocr":
+        if user_id in ocr_cache:
+            lines = ocr_cache[user_id].splitlines()
+            for line in lines:
+                if '-' in line:
+                    nama, harga = line.split('-', 1)
+                    nama = nama.strip()
+                    try:
+                        harga = int(harga.strip().lower().replace("rp", "").replace(".", ""))
+                        insert_spending(user_id, harga, nama)
+                    except:
+                        continue
+            del ocr_cache[user_id]
+            await query.edit_message_text("✅ Data dari struk berhasil disimpan.")
+        else:
+            await query.edit_message_text("⚠️ Tidak ada data untuk disimpan.")
+    elif query.data == "edit_ocr":
+        await query.edit_message_text("Silakan ketik ulang data item. Contoh:\nNasi Padang 15000\nTeh Botol 5000")
+        return KOREKSI
 
 async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
