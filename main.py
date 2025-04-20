@@ -4,11 +4,12 @@ import base64
 import json
 import requests
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from pytz import timezone
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 import openai
 
-# Load locale
+# Locale
 with open("locale_texts.json", "r") as f:
     TXT = json.load(f)
 
@@ -28,6 +29,10 @@ c.execute('''CREATE TABLE IF NOT EXISTS spending (
     description TEXT,
     timestamp TEXT
 )''')
+c.execute('''CREATE TABLE IF NOT EXISTS user_settings (
+    user_id INTEGER PRIMARY KEY,
+    timezone TEXT
+)''')
 conn.commit()
 
 KOREKSI = range(1)
@@ -35,16 +40,26 @@ ocr_cache = {}
 
 # ============ UTILITY ============
 def insert_spending(user_id, amount, description):
-    now = datetime.now().isoformat()
+    user_tz = get_user_timezone(user_id)
+    now = datetime.now(user_tz).isoformat()
     c.execute("INSERT INTO spending (user_id, amount, description, timestamp) VALUES (?, ?, ?, ?)", (user_id, amount, description, now))
     conn.commit()
 
+def get_user_timezone(user_id):
+    c.execute("SELECT timezone FROM user_settings WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    return timezone(row[0]) if row else timezone("Asia/Jakarta")
+
+def save_user_timezone(user_id, zone):
+    c.execute("REPLACE INTO user_settings (user_id, timezone) VALUES (?, ?)", (user_id, zone))
+    conn.commit()
+
 def get_today(user_id):
-    c.execute("SELECT description, amount, timestamp FROM spending WHERE user_id = ? AND date(timestamp) = date('now') ORDER BY timestamp", (user_id,))
+    c.execute("SELECT description, amount, timestamp FROM spending WHERE user_id = ? AND date(timestamp, 'localtime') = date('now', 'localtime') ORDER BY timestamp", (user_id,))
     return c.fetchall()
 
 def get_week(user_id):
-    c.execute("SELECT date(timestamp), SUM(amount) FROM spending WHERE user_id = ? AND timestamp >= ? GROUP BY date(timestamp) ORDER BY date(timestamp)", (user_id, (datetime.now() - timedelta(days=7)).isoformat()))
+    c.execute("SELECT date(timestamp), SUM(amount) FROM spending WHERE user_id = ? AND timestamp >= ? GROUP BY date(timestamp) ORDER BY date(timestamp)", (user_id, (datetime.now(get_user_timezone(user_id)) - timedelta(days=7)).isoformat()))
     return c.fetchall()
 
 def get_all_entries(user_id):
@@ -96,6 +111,23 @@ Semua harga diformat titik ribuan.
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(TXT["START_MESSAGE"])
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(TXT["HELP_MESSAGE"], parse_mode="HTML")
+
+async def set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["Asia/Jakarta", "Asia/Makassar"], ["Asia/Jayapura"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text(TXT["SET_TIMEZONE_PROMPT"], reply_markup=reply_markup)
+
+async def save_timezone_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    zone = update.message.text.strip()
+    user_id = update.effective_user.id
+    try:
+        save_user_timezone(user_id, zone)
+        await update.message.reply_text(TXT["TIMEZONE_SAVED"].format(zone=zone), reply_markup=ReplyKeyboardRemove())
+    except:
+        await update.message.reply_text("❌ Zona waktu tidak dikenali.", reply_markup=ReplyKeyboardRemove())
+
 async def log_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -113,12 +145,13 @@ async def log_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     entries = get_today(user_id)
+    user_tz = get_user_timezone(user_id)
     if not entries:
         return await update.message.reply_text(TXT["TIDAK_ADA_DATA"])
     total = 0
     lines = []
     for desc, amt, ts in entries:
-        jam = ts[11:16]
+        jam = datetime.fromisoformat(ts).astimezone(user_tz).strftime("%H:%M")
         lines.append(f"{jam} | Rp {amt:,} | {desc}".replace(",", "."))
         total += amt
     lines.append(f"Total: Rp {total:,}".replace(",", "."))
@@ -127,12 +160,15 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     entries = get_week(user_id)
+    user_tz = get_user_timezone(user_id)
     if not entries:
         return await update.message.reply_text(TXT["TIDAK_ADA_DATA"])
     total = 0
     lines = []
+    hari_indo = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
     for date, amt in entries:
-        hari = datetime.strptime(date, "%Y-%m-%d").strftime("%A")
+        d = datetime.strptime(date, "%Y-%m-%d")
+        hari = hari_indo[d.weekday()]
         lines.append(f"{hari}: Rp {amt:,}".replace(",", "."))
         total += amt
     lines.append(f"Total Minggu Ini: Rp {total:,}".replace(",", "."))
@@ -190,7 +226,7 @@ async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("⚠️ Tidak ada data untuk disimpan.")
     elif query.data == "edit_ocr":
-        await query.edit_message_text("Silakan ketik ulang data item. Contoh:\nNasi Padang 15000\nTeh Botol 5000")
+        await query.edit_message_text(TXT["DISIMPAN_SEMENTARA"])
         return KOREKSI
 
 async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -205,9 +241,12 @@ async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============ BOT SETUP ============
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("today", today))
 app.add_handler(CommandHandler("week", week))
 app.add_handler(CommandHandler("summary", summary))
+app.add_handler(CommandHandler("settimezone", set_timezone))
+app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Asia/.*"), save_timezone_choice))
 app.add_handler(MessageHandler(filters.PHOTO, ocr_photo))
 app.add_handler(CallbackQueryHandler(ocr_decision))
 app.add_handler(ConversationHandler(

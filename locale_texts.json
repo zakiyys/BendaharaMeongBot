@@ -7,11 +7,10 @@
     "OCR_ERROR": "❌ Gagal mengenali struk. Kirim ulang atau koreksi manual.",
     "BUTTON_SIMPAN": "✔️ Simpan",
     "BUTTON_KOREKSI": "✏️ Koreksi",
-    "DISIMPAN_SEMENTARA": "✅ Data disimpan sementara. Koreksi manual belum didukung penuh.",
-    "TIDAK_ADA_FOTO": "❌ Tidak ada foto yang ditemukan.",
+    "DISIMPAN_SEMENTARA": "Silakan ketik ulang data item. Contoh:\nNasi Padang 15000\nTeh Botol 5000",
     "BELUM_ADA_CATATAN": "Belum ada catatan.",
-    "SUMMARY_HEADER": "\ud83d\udccb Ringkasan:\n",
-    "TOTAL_HARI_INI": "Hari ini: Rp {total}",
-    "TOTAL_MINGGU": "7 Hari terakhir: Rp {total}"
+    "SUMMARY_HEADER": "📋 Ringkasan:\n",
+    "HELP_MESSAGE": "❓ <b>Daftar Perintah:</b>\n\n<b>/start</b> - Memulai bot dan menampilkan pesan sambutan\n<b>/today</b> - Menampilkan semua pengeluaran hari ini dengan jam\n<b>/week</b> - Menampilkan pengeluaran mingguan per hari\n<b>/summary</b> - Menampilkan 10 transaksi terakhir\n<b>hapus</b> - Menghapus entri terakhir\n<b>/help</b> - Menampilkan daftar perintah ini\n<b>/settimezone</b> - Mengatur zona waktu lokal Anda\n\n<b>Pengeluaran manual:</b> kirim pesan seperti:\nMakan Siang 20000\n\n<b>Struk belanja:</b> kirim foto struk lalu tekan Simpan untuk menyimpan otomatis.",
+    "SET_TIMEZONE_PROMPT": "Pilih zona waktu lokal Anda:",
+    "TIMEZONE_SAVED": "✅ Zona waktu Anda telah disimpan: {zone}"
   }
-  
