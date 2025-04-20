@@ -1,11 +1,20 @@
 import os
 import pg8000.native
+import urllib.parse
 from datetime import datetime, timedelta
 import pytz
 
-# Connect using pg8000
-conn = pg8000.native.Connection.from_dsn(os.getenv("DATABASE_URL"))
+# Manual parse DATABASE_URL
+db_url = os.getenv("DATABASE_URL")
+parsed = urllib.parse.urlparse(db_url)
 
+conn = pg8000.native.Connection(
+    user=parsed.username,
+    password=parsed.password,
+    host=parsed.hostname,
+    port=parsed.port,
+    database=parsed.path.lstrip("/")
+)
 # ========== SETUP TABLE ==========
 conn.run("""
 CREATE TABLE IF NOT EXISTS spending (
