@@ -1,0 +1,17 @@
+{
+    "START_MESSAGE": "Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.",
+    "FORMAT_SALAH": "Format salah. Contoh: Es Teh 5000",
+    "HAPUS_BERHASIL": "✅ Entri terakhir dihapus.",
+    "TIDAK_ADA_DATA": "Tidak ada data.",
+    "KOREKSI_SIMPAN": "✅ Koreksi disimpan.",
+    "OCR_ERROR": "❌ Gagal mengenali struk. Kirim ulang atau koreksi manual.",
+    "BUTTON_SIMPAN": "✔️ Simpan",
+    "BUTTON_KOREKSI": "✏️ Koreksi",
+    "DISIMPAN_SEMENTARA": "✅ Data disimpan sementara. Koreksi manual belum didukung penuh.",
+    "TIDAK_ADA_FOTO": "❌ Tidak ada foto yang ditemukan.",
+    "BELUM_ADA_CATATAN": "Belum ada catatan.",
+    "SUMMARY_HEADER": "\ud83d\udccb Ringkasan:\n",
+    "TOTAL_HARI_INI": "Hari ini: Rp {total}",
+    "TOTAL_MINGGU": "7 Hari terakhir: Rp {total}"
+  }
+  
