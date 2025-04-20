@@ -9,13 +9,10 @@ TOKEN = os.getenv("BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"[DEBUG] /ping dari {update.effective_user.first_name} ({update.effective_user.id})")
     await update.message.reply_text("Bot aktif ✅")
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    print(f"[DEBUG] Pesan dari {user.first_name} ({user.id}): {update.message.text}")
-    await update.message.reply_text("✅ Pesan diterima")
+    await update.message.reply_text(f"Kamu berkata: {update.message.text}")
 
 app.add_handler(CommandHandler("ping", ping))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
