@@ -4,14 +4,15 @@ import urllib.parse
 from datetime import datetime, timedelta
 import pytz
 
-# Parse DATABASE_URL secara benar
-parsed = urllib.parse.urlparse(os.getenv("DATABASE_URL"))
+# Parse database URL secara aman
+parsed = urllib.parse.urlparse(os.getenv("DATABASE_URL") or "")
+
 conn = pg8000.native.Connection(
-    user=parsed.username,
-    password=parsed.password.encode(),
-    host=parsed.hostname,
-    port=parsed.port,
-    database=parsed.path.lstrip("/")
+    user=parsed.username or "postgres",
+    password=(parsed.password.encode() if parsed.password else b"qwertyuiop"),
+    host=parsed.hostname or "localhost",
+    port=parsed.port or 5432,
+    database=(parsed.path.lstrip("/") if parsed.path else "postgres")
 )
 
 # ========== SETUP TABLE ==========
