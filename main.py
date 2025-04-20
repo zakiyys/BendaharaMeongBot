@@ -1,4 +1,5 @@
 import os
+print(\"🐍 Main.py dimulai!\")
 import json
 import base64
 import requests
