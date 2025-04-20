@@ -1,18 +1,15 @@
 import os
 import pg8000.native
-import urllib.parse
 from datetime import datetime, timedelta
 import pytz
 
-# Parse database URL secara aman
-parsed = urllib.parse.urlparse(os.getenv("DATABASE_URL") or "")
-
+# Connect ke Railway PostgreSQL plugin via ENV
 conn = pg8000.native.Connection(
-    user=parsed.username or "postgres",
-    password=(parsed.password.encode() if parsed.password else b"qwertyuiop"),
-    host=parsed.hostname or "localhost",
-    port=parsed.port or 5432,
-    database=(parsed.path.lstrip("/") if parsed.path else "postgres")
+    user=os.getenv("PGUSER", "postgres"),
+    password=os.getenv("PGPASSWORD", ""),
+    host=os.getenv("PGHOST", "localhost"),
+    port=int(os.getenv("PGPORT", 5432)),
+    database=os.getenv("PGDATABASE", "postgres")
 )
 
 # ========== SETUP TABLE ==========
