@@ -1,16 +1,17 @@
 {
-    "START_MESSAGE": "Halo! Kirim pengeluaran seperti 'Nasi Goreng 15000' atau upload foto struk belanja.",
-    "FORMAT_SALAH": "Format salah. Contoh: Es Teh 5000",
-    "HAPUS_BERHASIL": "✅ Entri terakhir dihapus.",
-    "TIDAK_ADA_DATA": "Tidak ada data.",
-    "KOREKSI_SIMPAN": "✅ Koreksi disimpan.",
-    "OCR_ERROR": "❌ Gagal mengenali struk. Kirim ulang atau koreksi manual.",
-    "BUTTON_SIMPAN": "✔️ Simpan",
+    "START_MESSAGE": "Halo! Aku siap bantu catat pengeluaran kamu. Cukup kirim pesan seperti:\n\nNasi Goreng 15000",
+    "HELP_MESSAGE": "🆘 <b>Daftar Perintah</b>\n\n/start - Mulai bot\n/help - Tampilkan bantuan\n/ping - Cek status bot\n/today - Tampilkan pengeluaran hari ini\n/week - Ringkasan mingguan\n/summary - Riwayat catatan\n/settimezone - Atur zona waktu kamu",
+    "SET_TIMEZONE_PROMPT": "Silakan pilih zona waktu kamu:",
+    "TIMEZONE_SAVED": "✅ Zona waktu kamu disimpan: {zone}",
+    "FORMAT_SALAH": "❌ Format salah. Contoh:\n\nEs Teh Manis 4000",
+    "HAPUS_BERHASIL": "✅ Catatan terakhir dihapus.",
+    "TIDAK_ADA_DATA": "📭 Belum ada catatan hari ini.",
+    "BELUM_ADA_CATATAN": "📭 Belum ada catatan pengeluaran.",
+    "SUMMARY_HEADER": "📦 <b>Riwayat Catatan</b>\n",
+    "OCR_ERROR": "❌ Gagal membaca struk. Silakan coba lagi atau koreksi manual.",
+    "BUTTON_SIMPAN": "✅ Simpan",
     "BUTTON_KOREKSI": "✏️ Koreksi",
-    "DISIMPAN_SEMENTARA": "Silakan ketik ulang data item. Contoh:\nNasi Padang 15000\nTeh Botol 5000",
-    "BELUM_ADA_CATATAN": "Belum ada catatan.",
-    "SUMMARY_HEADER": "📋 Ringkasan:\n",
-    "HELP_MESSAGE": "❓ <b>Daftar Perintah:</b>\n\n<b>/start</b> - Memulai bot dan menampilkan pesan sambutan\n<b>/today</b> - Menampilkan semua pengeluaran hari ini dengan jam\n<b>/week</b> - Menampilkan pengeluaran mingguan per hari\n<b>/summary</b> - Menampilkan 10 transaksi terakhir\n<b>hapus</b> - Menghapus entri terakhir\n<b>/help</b> - Menampilkan daftar perintah ini\n<b>/settimezone</b> - Mengatur zona waktu lokal Anda\n\n<b>Pengeluaran manual:</b> kirim pesan seperti:\nMakan Siang 20000\n\n<b>Struk belanja:</b> kirim foto struk lalu tekan Simpan untuk menyimpan otomatis.",
-    "SET_TIMEZONE_PROMPT": "Pilih zona waktu lokal Anda:",
-    "TIMEZONE_SAVED": "✅ Zona waktu Anda telah disimpan: {zone}"
+    "DISIMPAN_SEMENTARA": "✅ Data disimpan sementara.\nKetik ulang item dengan format:\n\nNasi Padang 15000\nTeh Botol 6000",
+    "KOREKSI_SIMPAN": "✅ Koreksi disimpan."
   }
+  
