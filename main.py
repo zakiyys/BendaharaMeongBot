@@ -219,6 +219,10 @@ app.add_handler(ConversationHandler(
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_text))
 
 # ============ RUN ============
+
+print("✅ ENV PGHOST:", os.getenv("PGHOST"))
+print("✅ ENV PGDATABASE:", os.getenv("PGDATABASE"))
+
 async def init():
     setup_tables()
     await app.initialize()

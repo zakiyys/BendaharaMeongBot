@@ -5,12 +5,16 @@ import pytz
 
 # Deferred connection factory
 def get_conn():
+    host = os.getenv("PGHOST")
+    if not host:
+        raise RuntimeError("❌ ENV PGHOST tidak ditemukan. Railway belum inject database dengan benar.")
+    
     return pg8000.native.Connection(
-        user=os.getenv("PGUSER", "postgres"),
-        password=os.getenv("PGPASSWORD", ""),
-        host=os.getenv("PGHOST", "localhost"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
+        host=host,
         port=int(os.getenv("PGPORT", 5432)),
-        database=os.getenv("PGDATABASE", "postgres")
+        database=os.getenv("PGDATABASE")
     )
 
 # ========== SETUP TABLE (manual trigger) ==========
