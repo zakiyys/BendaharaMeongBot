@@ -4,3 +4,4 @@ openai==0.28
 pytz
 psycopg2-binary
 python-dotenv
+pg8000
