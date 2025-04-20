@@ -4,17 +4,16 @@ import urllib.parse
 from datetime import datetime, timedelta
 import pytz
 
-# Manual parse DATABASE_URL
-db_url = os.getenv("DATABASE_URL")
-parsed = urllib.parse.urlparse(db_url)
-
+# Parse DATABASE_URL secara benar
+parsed = urllib.parse.urlparse(os.getenv("DATABASE_URL"))
 conn = pg8000.native.Connection(
     user=parsed.username,
-    password=parsed.password,
+    password=parsed.password.encode(),
     host=parsed.hostname,
     port=parsed.port,
     database=parsed.path.lstrip("/")
 )
+
 # ========== SETUP TABLE ==========
 conn.run("""
 CREATE TABLE IF NOT EXISTS spending (
