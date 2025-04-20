@@ -23,9 +23,6 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Jalankan setup table saat environment sudah siap
-setup_tables()
-
 KOREKSI = range(1)
 ocr_cache = {}
 
@@ -220,4 +217,14 @@ app.add_handler(ConversationHandler(
     fallbacks=[]
 ))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_text))
-app.run_polling()
+
+# ============ RUN ============
+async def init():
+    setup_tables()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
+
+import asyncio
+asyncio.run(init())
