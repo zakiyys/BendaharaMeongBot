@@ -4,10 +4,15 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 import pytz
 
+from dotenv import load_dotenv
+load_dotenv()
+
 DB_URL = os.getenv("DATABASE_URL")
 
 conn = psycopg2.connect(DB_URL, cursor_factory=RealDictCursor)
 cursor = conn.cursor()
+
+print("[DEBUG] DATABASE_URL =", DB_URL)
 
 # ========== SETUP TABLE ==========
 cursor.execute("""
