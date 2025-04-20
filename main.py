@@ -1,13 +1,15 @@
 import os
-import sqlite3
-import base64
 import json
+import base64
 import requests
-from datetime import datetime, timedelta
-from pytz import timezone
+from datetime import datetime
+import pytz
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 import openai
+
+from db_postgres import insert_spending, get_today, get_week, get_all_entries, save_user_timezone, get_user_timezone, delete_last_entry
 
 # Locale
 with open("locale_texts.json", "r") as f:
@@ -17,54 +19,9 @@ with open("locale_texts.json", "r") as f:
 openai.api_key = os.getenv("OPENAI_API_KEY")
 VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY")
 TOKEN = os.getenv("BOT_TOKEN")
-DB_FILE = "spending.db"
-
-# DB SETUP
-conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS spending (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    amount INTEGER,
-    description TEXT,
-    timestamp TEXT
-)''')
-c.execute('''CREATE TABLE IF NOT EXISTS user_settings (
-    user_id INTEGER PRIMARY KEY,
-    timezone TEXT
-)''')
-conn.commit()
 
 KOREKSI = range(1)
 ocr_cache = {}
-
-# ============ UTILITY ============
-def insert_spending(user_id, amount, description):
-    user_tz = get_user_timezone(user_id)
-    now = datetime.now(user_tz).isoformat()
-    c.execute("INSERT INTO spending (user_id, amount, description, timestamp) VALUES (?, ?, ?, ?)", (user_id, amount, description, now))
-    conn.commit()
-
-def get_user_timezone(user_id):
-    c.execute("SELECT timezone FROM user_settings WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
-    return timezone(row[0]) if row else timezone("Asia/Jakarta")
-
-def save_user_timezone(user_id, zone):
-    c.execute("REPLACE INTO user_settings (user_id, timezone) VALUES (?, ?)", (user_id, zone))
-    conn.commit()
-
-def get_today(user_id):
-    c.execute("SELECT description, amount, timestamp FROM spending WHERE user_id = ? AND date(timestamp, 'localtime') = date('now', 'localtime') ORDER BY timestamp", (user_id,))
-    return c.fetchall()
-
-def get_week(user_id):
-    c.execute("SELECT date(timestamp), SUM(amount) FROM spending WHERE user_id = ? AND timestamp >= ? GROUP BY date(timestamp) ORDER BY date(timestamp)", (user_id, (datetime.now(get_user_timezone(user_id)) - timedelta(days=7)).isoformat()))
-    return c.fetchall()
-
-def get_all_entries(user_id):
-    c.execute("SELECT amount, description, timestamp FROM spending WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
-    return c.fetchall()
 
 # ============ OCR GOOGLE ============
 async def google_vision_ocr(image_path):
@@ -132,45 +89,45 @@ async def log_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     if text.lower() == "hapus":
-        c.execute("DELETE FROM spending WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1", (user_id,))
-        conn.commit()
+        delete_last_entry(user_id)
         return await update.message.reply_text(TXT["HAPUS_BERHASIL"])
 
     parts = text.rsplit(" ", 1)
     if len(parts) == 2 and parts[1].isdigit():
-        insert_spending(user_id, int(parts[1]), parts[0])
+        zone = get_user_timezone(user_id)
+        insert_spending(user_id, int(parts[1]), parts[0], zone)
         return await update.message.reply_text(f"✅ {parts[0]} - Rp {int(parts[1]):,}".replace(",", "."))
     await update.message.reply_text(TXT["FORMAT_SALAH"])
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     entries = get_today(user_id)
-    user_tz = get_user_timezone(user_id)
+    user_tz = pytz.timezone(get_user_timezone(user_id))
     if not entries:
         return await update.message.reply_text(TXT["TIDAK_ADA_DATA"])
     total = 0
     lines = []
-    for desc, amt, ts in entries:
-        jam = datetime.fromisoformat(ts).astimezone(user_tz).strftime("%H:%M")
-        lines.append(f"{jam} | Rp {amt:,} | {desc}".replace(",", "."))
-        total += amt
+    for row in entries:
+        jam = row['timestamp'].astimezone(user_tz).strftime("%H:%M")
+        lines.append(f"{jam} | Rp {row['amount']:,} | {row['description']}".replace(",", "."))
+        total += row['amount']
     lines.append(f"Total: Rp {total:,}".replace(",", "."))
     await update.message.reply_text("\n".join(lines))
 
 async def week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     entries = get_week(user_id)
-    user_tz = get_user_timezone(user_id)
+    user_tz = pytz.timezone(get_user_timezone(user_id))
     if not entries:
         return await update.message.reply_text(TXT["TIDAK_ADA_DATA"])
     total = 0
     lines = []
     hari_indo = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
-    for date, amt in entries:
-        d = datetime.strptime(date, "%Y-%m-%d")
+    for row in entries:
+        d = row['date']
         hari = hari_indo[d.weekday()]
-        lines.append(f"{hari}: Rp {amt:,}".replace(",", "."))
-        total += amt
+        lines.append(f"{hari}: Rp {row['total']:,}".replace(",", "."))
+        total += row['total']
     lines.append(f"Total Minggu Ini: Rp {total:,}".replace(",", "."))
     await update.message.reply_text("\n".join(lines))
 
@@ -181,7 +138,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(TXT["BELUM_ADA_CATATAN"])
     msg = TXT["SUMMARY_HEADER"] + "<pre>"
     for e in entries[:10]:
-        msg += f"{e[2][:10]} | Rp {e[0]:,} | {e[1][:25]}\n".replace(",", ".")
+        msg += f"{e['timestamp'].strftime('%Y-%m-%d')} | Rp {e['amount']:,} | {e['description'][:25]}\n".replace(",", ".")
     msg += "</pre>"
     await update.message.reply_text(msg, parse_mode="HTML")
 
@@ -211,6 +168,7 @@ async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "save_ocr":
         if user_id in ocr_cache:
+            zone = get_user_timezone(user_id)
             lines = ocr_cache[user_id].splitlines()
             for line in lines:
                 if '-' in line:
@@ -218,7 +176,7 @@ async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     nama = nama.strip()
                     try:
                         harga = int(harga.strip().lower().replace("rp", "").replace(".", ""))
-                        insert_spending(user_id, harga, nama)
+                        insert_spending(user_id, harga, nama, zone)
                     except:
                         continue
             del ocr_cache[user_id]
@@ -231,10 +189,11 @@ async def ocr_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ocr_edit_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    zone = get_user_timezone(user_id)
     for line in update.message.text.strip().splitlines():
         parts = line.rsplit(" ", 1)
         if len(parts) == 2 and parts[1].isdigit():
-            insert_spending(user_id, int(parts[1]), parts[0])
+            insert_spending(user_id, int(parts[1]), parts[0], zone)
     await update.message.reply_text(TXT["KOREKSI_SIMPAN"], reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 

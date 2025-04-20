@@ -2,3 +2,4 @@ python-telegram-bot==20.3
 requests
 openai==0.28
 pytz
+psycopg2-binary
